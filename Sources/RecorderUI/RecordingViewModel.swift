@@ -59,6 +59,7 @@ public final class RecordingViewModel: ObservableObject {
     public let library: RecordingsLibrary
     public let presets: PresetsStore
     public let settings: AppSettings
+    public let permissions: PermissionsMonitor
     public let webcam: WebcamOverlayController
     public let clickHighlights: ClickHighlightController
     public let keystrokes: KeystrokeOverlayController
@@ -91,6 +92,7 @@ public final class RecordingViewModel: ObservableObject {
         self.outputFolder = settings.outputFolder
         self.library = RecordingsLibrary(folder: settings.outputFolder)
         self.presets = PresetsStore()
+        self.permissions = PermissionsMonitor()
         self.webcam = WebcamOverlayController()
         self.clickHighlights = ClickHighlightController()
         self.keystrokes = KeystrokeOverlayController()
@@ -201,6 +203,8 @@ public final class RecordingViewModel: ObservableObject {
 
     public func loadAvailableContent() async {
         status = .loadingContent
+        permissions.refresh()
+        devices.refresh()
         do {
             let content = try await ShareableContentLoader.load(excludingBundleID: bundleID)
             self.displays = content.displays
@@ -239,6 +243,13 @@ public final class RecordingViewModel: ObservableObject {
     }
 
     public func startRecording() async {
+        // Friendly preflight: surface the most common reason recording fails.
+        permissions.refresh()
+        guard permissions.hasScreenRecording else {
+            permissions.requestScreenRecordingPrompt()
+            status = .error("Screen Recording permission is missing. Grant it in System Settings, then quit & relaunch.")
+            return
+        }
         guard let source = currentSource() else {
             status = .error("Pick a source to record first.")
             return

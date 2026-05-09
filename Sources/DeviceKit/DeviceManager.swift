@@ -15,9 +15,12 @@ public final class DeviceManager: ObservableObject {
 
     private let log = Logger(subsystem: "com.freemacscreenrecorder.app", category: "DeviceManager")
     private var observers: [NSObjectProtocol] = []
+    private var pollTask: Task<Void, Never>?
 
     public init() {
         refresh()
+        // Notification path — fires for cameras reliably, less so for mics on
+        // newer macOS. Keep it but supplement with a poll below.
         let handler: @Sendable (Notification) -> Void = { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -27,9 +30,20 @@ public final class DeviceManager: ObservableObject {
         observers.append(NotificationCenter.default.addObserver(
             forName: .AVCaptureDeviceWasDisconnected, object: nil, queue: nil, using: handler
         ))
+
+        // Periodic safety-net poll: every 2.5s re-enumerate. Cheap (DiscoverySession
+        // is a snapshot, not a live observer) and catches devices that AVF didn't
+        // bother to notify us about.
+        pollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                self?.refresh()
+            }
+        }
     }
 
     deinit {
+        pollTask?.cancel()
         observers.forEach(NotificationCenter.default.removeObserver)
     }
 

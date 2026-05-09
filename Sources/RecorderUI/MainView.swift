@@ -16,6 +16,8 @@ public struct MainView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            PermissionsBanner(monitor: vm.permissions)
+            errorBanner
             PresetsBar(vm: vm)
             Divider()
             ScrollView {
@@ -34,6 +36,23 @@ public struct MainView: View {
         .task { await vm.loadAvailableContent() }
         .sheet(isPresented: $showLibrary) {
             RecordingsListView(library: vm.library)
+        }
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if case .error(let message) = vm.status {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(.white)
+                Text(message).font(.callout).foregroundStyle(.white)
+                Spacer()
+                Button("Retry") {
+                    Task { await vm.loadAvailableContent() }
+                }
+                .controlSize(.small)
+            }
+            .padding(10)
+            .background(Color.orange.opacity(0.9))
         }
     }
 
@@ -65,12 +84,15 @@ public struct MainView: View {
             .buttonStyle(.borderless)
             .help("Browse past recordings")
             Button {
-                Task { await vm.loadAvailableContent() }
+                Task {
+                    vm.devices.refresh()
+                    await vm.loadAvailableContent()
+                }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .help("Refresh available screens, windows, and apps")
+            .help("Refresh screens, windows, apps, and devices")
         }
         .padding(16)
     }
