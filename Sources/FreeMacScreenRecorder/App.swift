@@ -18,6 +18,10 @@ struct FreeMacScreenRecorderApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}   // hide File → New
         }
+
+        Settings {
+            SettingsView(settings: vm.settings)
+        }
     }
 }
 

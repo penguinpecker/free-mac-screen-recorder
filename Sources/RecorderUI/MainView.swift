@@ -50,6 +50,8 @@ public struct MainView: View {
                     RecordingTimerView(startedAt: started)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.red)
+                } else if case .paused = vm.status {
+                    Text("Paused").font(.caption).foregroundStyle(.orange)
                 } else {
                     Text(statusLine).font(.caption).foregroundStyle(.secondary)
                 }
@@ -163,7 +165,13 @@ public struct MainView: View {
                 set: { _ in vm.toggleClickHighlights() }
             ))
 
-            Text("Webcam and click overlays appear in display + region recordings.")
+            // Keystroke overlay
+            Toggle("Show keystrokes", isOn: Binding(
+                get: { vm.keystrokesEnabled },
+                set: { _ in vm.toggleKeystrokes() }
+            ))
+
+            Text("Overlays appear in display + region recordings. Keystrokes need Input Monitoring permission to capture keys typed in other apps.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -263,17 +271,28 @@ public struct MainView: View {
                 Button("Show in Finder") { vm.revealLastRecording() }
             }
             Spacer()
+            if isActive {
+                Button {
+                    vm.togglePause()
+                } label: {
+                    Label(isPaused ? "Resume" : "Pause",
+                          systemImage: isPaused ? "play.circle.fill" : "pause.circle.fill")
+                        .font(.headline)
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
+            }
             Button {
                 Task { await vm.toggleRecording() }
             } label: {
-                Label(isRecording ? "Stop Recording" : "Start Recording",
-                      systemImage: isRecording ? "stop.circle.fill" : "record.circle.fill")
+                Label(isActive ? "Stop Recording" : "Start Recording",
+                      systemImage: isActive ? "stop.circle.fill" : "record.circle.fill")
                     .font(.headline)
                     .frame(minWidth: 180)
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
-            .tint(isRecording ? .red : .accentColor)
+            .tint(isActive ? .red : .accentColor)
             .keyboardShortcut("r", modifiers: [.command, .shift])
         }
         .padding(16)
@@ -286,6 +305,13 @@ public struct MainView: View {
         return false
     }
 
+    private var isPaused: Bool {
+        if case .paused = vm.status { return true }
+        return false
+    }
+
+    private var isActive: Bool { isRecording || isPaused }
+
     private var statusLine: String {
         switch vm.status {
         case .idle:                       return "Idle"
@@ -294,6 +320,7 @@ public struct MainView: View {
         case .recording(let started):
             let secs = Int(Date().timeIntervalSince(started))
             return String(format: "Recording — %02d:%02d", secs / 60, secs % 60)
+        case .paused:                     return "Paused"
         case .stopping:                   return "Stopping…"
         case .finished(let url):          return "Saved \(url.lastPathComponent)"
         case .error(let message):         return message

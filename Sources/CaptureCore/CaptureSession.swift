@@ -14,8 +14,8 @@ import ScreenCaptureKit
 /// and WWDC22 session 10156 "Meet ScreenCaptureKit".
 public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
-    public enum State: Sendable {
-        case idle, starting, recording, stopping, finished, failed(String)
+    public enum State: Sendable, Equatable {
+        case idle, starting, recording, paused, stopping, finished, failed(String)
     }
 
     public enum CaptureError: Error {
@@ -99,9 +99,21 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
+    public func pause() {
+        guard case .recording = state else { return }
+        encoder?.pause()
+        state = .paused
+    }
+
+    public func resume() {
+        guard case .paused = state else { return }
+        encoder?.resume()
+        state = .recording
+    }
+
     @discardableResult
     public func stop() async throws -> URL {
-        guard case .recording = state else {
+        guard state == .recording || state == .paused else {
             throw CaptureError.streamFailed("Not recording")
         }
         state = .stopping

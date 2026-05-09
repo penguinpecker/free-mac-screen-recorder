@@ -1,7 +1,9 @@
 import AVFoundation
 import AppKit
 import Combine
+import EncoderKit
 import Foundation
+import OSLog
 
 public struct RecordingFile: Identifiable, Hashable, Sendable {
     public var id: URL { url }
@@ -26,11 +28,20 @@ public struct RecordingFile: Identifiable, Hashable, Sendable {
 public final class RecordingsLibrary: ObservableObject {
     @Published public private(set) var files: [RecordingFile] = []
 
-    public let folder: URL
+    @Published public private(set) var folder: URL
 
     public init(folder: URL) {
         self.folder = folder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    /// Point the library at a new folder (e.g. when the user changes the
+    /// output destination in Settings) and reload the file list.
+    public func relocate(to newFolder: URL) {
+        guard newFolder != folder else { return }
+        try? FileManager.default.createDirectory(at: newFolder, withIntermediateDirectories: true)
+        folder = newFolder
+        Task { await reload() }
     }
 
     public func reload() async {
@@ -97,5 +108,36 @@ public final class RecordingsLibrary: ObservableObject {
             // Surface in console; UI surfacing later.
             print("Delete failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Rename a recording on disk (preserves extension) and refresh the entry.
+    public func rename(_ file: RecordingFile, to newBaseName: String) throws {
+        let trimmed = newBaseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let ext = file.url.pathExtension
+        let parent = file.url.deletingLastPathComponent()
+        var dest = parent.appendingPathComponent(trimmed).appendingPathExtension(ext)
+        // If a name collision exists, append a numeric suffix.
+        var counter = 2
+        while FileManager.default.fileExists(atPath: dest.path) && dest != file.url {
+            dest = parent.appendingPathComponent("\(trimmed) (\(counter))").appendingPathExtension(ext)
+            counter += 1
+        }
+        try FileManager.default.moveItem(at: file.url, to: dest)
+        if let i = files.firstIndex(where: { $0.url == file.url }) {
+            files[i] = RecordingFile(
+                url: dest, name: dest.lastPathComponent, createdAt: file.createdAt,
+                sizeBytes: file.sizeBytes, duration: file.duration
+            )
+        }
+    }
+
+    /// Export a recording as an animated GIF beside the source file.
+    @discardableResult
+    public func exportGIF(_ file: RecordingFile, options: GIFExporter.Options = .init()) async throws -> URL {
+        let dest = file.url.deletingPathExtension().appendingPathExtension("gif")
+        try await GIFExporter.export(source: file.url, destination: dest, options: options)
+        await reload()
+        return dest
     }
 }

@@ -27,8 +27,39 @@ public final class VideoEncoder: @unchecked Sendable {
     private var sessionStarted = false
     private let queue = DispatchQueue(label: "com.freemacscreenrecorder.encoder", qos: .userInitiated)
 
+    // Pause / resume: track total paused duration so PTS can be rewritten and
+    // the recording excises pause intervals rather than freezing on a frame.
+    private var paused = false
+    private var pauseStartPTS: CMTime?
+    private var totalPausedDuration: CMTime = .zero
+    private var lastSeenPTS: CMTime = .zero
+
     public init(settings: RecordingSettings) {
         self.settings = settings
+    }
+
+    public var isPaused: Bool {
+        queue.sync { paused }
+    }
+
+    public func pause() {
+        queue.sync {
+            guard !paused else { return }
+            paused = true
+            pauseStartPTS = lastSeenPTS
+        }
+    }
+
+    public func resume() {
+        queue.sync {
+            guard paused, let start = pauseStartPTS else { paused = false; return }
+            // Add the gap between when we paused and "now" to the offset so the
+            // next frame appears immediately after the last appended one.
+            let gap = CMTimeSubtract(lastSeenPTS, start)
+            totalPausedDuration = CMTimeAdd(totalPausedDuration, gap)
+            paused = false
+            pauseStartPTS = nil
+        }
     }
 
     public func start() throws {
@@ -124,15 +155,21 @@ public final class VideoEncoder: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self, let writer = self.writer else { return }
 
+            let originalPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            // Track the most-recent PTS we've seen even when paused so we can
+            // measure the gap correctly on resume.
+            self.lastSeenPTS = originalPTS
+
+            if self.paused { return }
+
             // Start the session at the timestamp of the first video frame —
             // this is what ScreenCaptureKit recommends to keep video/audio
             // tracks aligned.
             if !self.sessionStarted {
                 guard kind == .video else { return }   // wait for first video frame
-                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                writer.startSession(atSourceTime: pts)
+                writer.startSession(atSourceTime: originalPTS)
                 self.sessionStarted = true
-                self.log.info("Encoder session started @\(pts.seconds, privacy: .public)s")
+                self.log.info("Encoder session started @\(originalPTS.seconds, privacy: .public)s")
             }
 
             let input: AVAssetWriterInput?
@@ -142,7 +179,33 @@ public final class VideoEncoder: @unchecked Sendable {
             case .systemAudio:  input = self.systemAudioInput
             }
             guard let input, input.isReadyForMoreMediaData else { return }
-            input.append(sampleBuffer)
+
+            // Rewrite PTS to subtract any time the user spent paused so the
+            // pause interval is excised from the output rather than freezing
+            // on a single frame.
+            let buffer: CMSampleBuffer
+            if self.totalPausedDuration > .zero {
+                let adjustedPTS = CMTimeSubtract(originalPTS, self.totalPausedDuration)
+                let timing = CMSampleTimingInfo(
+                    duration: CMSampleBufferGetDuration(sampleBuffer),
+                    presentationTimeStamp: adjustedPTS,
+                    decodeTimeStamp: .invalid
+                )
+                var rewritten: CMSampleBuffer?
+                let status = CMSampleBufferCreateCopyWithNewTiming(
+                    allocator: kCFAllocatorDefault,
+                    sampleBuffer: sampleBuffer,
+                    sampleTimingEntryCount: 1,
+                    sampleTimingArray: [timing],
+                    sampleBufferOut: &rewritten
+                )
+                guard status == noErr, let rewritten else { return }
+                buffer = rewritten
+            } else {
+                buffer = sampleBuffer
+            }
+
+            input.append(buffer)
         }
     }
 

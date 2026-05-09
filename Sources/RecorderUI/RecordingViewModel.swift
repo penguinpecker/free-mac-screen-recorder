@@ -25,6 +25,7 @@ public final class RecordingViewModel: ObservableObject {
         case loadingContent
         case ready
         case recording(startedAt: Date)
+        case paused(startedAt: Date, pausedAt: Date)
         case stopping
         case finished(URL)
         case error(String)
@@ -52,14 +53,18 @@ public final class RecordingViewModel: ObservableObject {
 
     @Published public private(set) var status: Status = .idle
 
+    private var outputFolder: URL
     public let devices: DeviceManager
     public let levels: AudioLevelMonitor
     public let library: RecordingsLibrary
     public let presets: PresetsStore
+    public let settings: AppSettings
     public let webcam: WebcamOverlayController
     public let clickHighlights: ClickHighlightController
+    public let keystrokes: KeystrokeOverlayController
     public let hotkeys: GlobalHotkeyController
     private let session: CaptureSession
+    private var settingsCancellable: AnyCancellable?
 
     @Published public var webcamEnabled: Bool = false
     @Published public var selectedWebcamDeviceID: String?
@@ -70,26 +75,40 @@ public final class RecordingViewModel: ObservableObject {
         didSet { webcam.size = webcamSize }
     }
     @Published public var clickHighlightsEnabled: Bool = false
+    @Published public var keystrokesEnabled: Bool = false
     private let log = Logger(subsystem: "com.freemacscreenrecorder.app", category: "ViewModel")
     private let bundleID: String
-    private let outputFolder: URL
 
-    public init(bundleID: String = "com.freemacscreenrecorder.app") {
+    public init(bundleID: String = "com.freemacscreenrecorder.app", settings: AppSettings? = nil) {
         self.bundleID = bundleID
+        let settings = settings ?? AppSettings.shared
+        self.settings = settings
         self.devices = DeviceManager()
         let levels = AudioLevelMonitor()
         self.levels = levels
         self.session = CaptureSession(ourBundleID: bundleID, levels: levels)
 
-        let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
-                    ?? FileManager.default.homeDirectoryForCurrentUser
-        self.outputFolder = movies.appendingPathComponent("Free Mac Screen Recorder", isDirectory: true)
-        try? FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
-        self.library = RecordingsLibrary(folder: outputFolder)
+        self.outputFolder = settings.outputFolder
+        self.library = RecordingsLibrary(folder: settings.outputFolder)
         self.presets = PresetsStore()
         self.webcam = WebcamOverlayController()
         self.clickHighlights = ClickHighlightController()
+        self.keystrokes = KeystrokeOverlayController()
         self.hotkeys = GlobalHotkeyController()
+
+        // Apply settings defaults to the working state.
+        self.codec = settings.defaultCodec
+        self.fps = settings.defaultFPS
+        self.showsCursor = settings.defaultShowsCursor
+        self.captureSystemAudio = settings.defaultCaptureSystemAudio
+
+        // Reload library if the user changes the output folder.
+        self.settingsCancellable = settings.$outputFolder
+            .dropFirst()
+            .sink { [weak self] url in
+                self?.outputFolder = url
+                self?.library.relocate(to: url)
+            }
     }
 
     /// Install global hotkeys after the app is ready. Called from App.
@@ -133,6 +152,16 @@ public final class RecordingViewModel: ObservableObject {
         } else {
             clickHighlights.show()
             clickHighlightsEnabled = true
+        }
+    }
+
+    public func toggleKeystrokes() {
+        if keystrokesEnabled {
+            keystrokes.hide()
+            keystrokesEnabled = false
+        } else {
+            keystrokes.show()
+            keystrokesEnabled = true
         }
     }
 
@@ -191,8 +220,21 @@ public final class RecordingViewModel: ObservableObject {
 
     public func toggleRecording() async {
         switch status {
-        case .recording: await stopRecording()
-        default:         await startRecording()
+        case .recording, .paused: await stopRecording()
+        default:                  await startRecording()
+        }
+    }
+
+    public func togglePause() {
+        switch status {
+        case .recording(let started):
+            session.pause()
+            status = .paused(startedAt: started, pausedAt: Date())
+        case .paused(let started, _):
+            session.resume()
+            status = .recording(startedAt: started)
+        default:
+            break
         }
     }
 
@@ -221,6 +263,7 @@ public final class RecordingViewModel: ObservableObject {
         var exceptions: [CGWindowID] = []
         if webcamEnabled, let id = webcam.windowID { exceptions.append(id) }
         if clickHighlightsEnabled { exceptions.append(contentsOf: clickHighlights.windowIDs) }
+        if keystrokesEnabled, let id = keystrokes.windowID { exceptions.append(id) }
 
         do {
             try await session.start(
