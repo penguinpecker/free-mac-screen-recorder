@@ -179,6 +179,7 @@ public struct MainView: View {
                         Text(s.displayName).tag(s)
                     }
                 }
+                Toggle("Mirror image (flip horizontally)", isOn: $vm.webcamMirrored)
             }
 
             // Click highlights

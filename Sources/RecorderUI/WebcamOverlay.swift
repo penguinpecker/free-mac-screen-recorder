@@ -46,6 +46,9 @@ public final class WebcamOverlayController: ObservableObject {
     @Published public var size: WebcamSize = .medium {
         didSet { reposition() }
     }
+    @Published public var mirrored: Bool = true {
+        didSet { applyMirror() }
+    }
 
     private let log = Logger(subsystem: "com.freemacscreenrecorder.app", category: "Webcam")
     private let captureSession = AVCaptureSession()
@@ -136,6 +139,15 @@ public final class WebcamOverlayController: ObservableObject {
         layer.masksToBounds = true
         host.layer?.addSublayer(layer)
         previewLayer = layer
+        applyMirror()
+    }
+
+    private func applyMirror() {
+        guard let conn = previewLayer?.connection else { return }
+        if conn.isVideoMirroringSupported {
+            conn.automaticallyAdjustsVideoMirroring = false
+            conn.isVideoMirrored = mirrored
+        }
     }
 
     private func reposition() {

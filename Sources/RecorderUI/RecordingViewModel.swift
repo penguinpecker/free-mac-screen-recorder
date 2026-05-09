@@ -75,6 +75,9 @@ public final class RecordingViewModel: ObservableObject {
     @Published public var webcamSize: WebcamSize = .medium {
         didSet { webcam.size = webcamSize }
     }
+    @Published public var webcamMirrored: Bool = true {
+        didSet { webcam.mirrored = webcamMirrored }
+    }
     @Published public var clickHighlightsEnabled: Bool = false
     @Published public var keystrokesEnabled: Bool = false
     private let log = Logger(subsystem: "com.freemacscreenrecorder.app", category: "ViewModel")
@@ -284,8 +287,14 @@ public final class RecordingViewModel: ObservableObject {
                 exceptingWindowIDs: exceptions
             )
             status = .recording(startedAt: Date())
+        } catch let captureError as CaptureSession.CaptureError {
+            status = .error(captureError.errorDescription ?? "Recording failed.")
         } catch {
-            status = .error(error.localizedDescription)
+            // Surface the underlying NSError message — this is usually the most
+            // informative thing (e.g. SCK's TCC error string).
+            let ns = error as NSError
+            let detail = ns.localizedFailureReason ?? ns.localizedDescription
+            status = .error("Recording failed: \(detail)")
         }
     }
 

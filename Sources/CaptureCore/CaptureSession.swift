@@ -18,9 +18,20 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
         case idle, starting, recording, paused, stopping, finished, failed(String)
     }
 
-    public enum CaptureError: Error {
+    public enum CaptureError: LocalizedError {
         case sourceNotFound
         case streamFailed(String)
+        case encoderFailed(String)
+        case microphoneFailed(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .sourceNotFound:           return "The selected source is no longer available — refresh and try again."
+            case .streamFailed(let msg):    return "Recording failed: \(msg)"
+            case .encoderFailed(let msg):   return "Couldn't start the encoder: \(msg)"
+            case .microphoneFailed(let msg): return "Microphone error: \(msg)"
+            }
+        }
     }
 
     private let log = Logger(subsystem: "com.freemacscreenrecorder.app", category: "CaptureSession")
@@ -64,18 +75,29 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
         // Encoder starts first so we have a place to send frames.
         let encoder = VideoEncoder(settings: settings)
-        try encoder.start()
+        do {
+            try encoder.start()
+        } catch {
+            state = .failed(error.localizedDescription)
+            throw CaptureError.encoderFailed(error.localizedDescription)
+        }
         self.encoder = encoder
 
         // Microphone capture (uses AVCaptureSession, independent of SCStream).
         if settings.captureMicrophone, let micID = settings.microphoneDeviceID {
-            let mic = try MicrophoneCapture(deviceUniqueID: micID) { [weak self] buf in
-                guard let self else { return }
-                self.encoder?.append(buf, kind: .microphone)
-                self.levels.ingestMicrophone(buf)
+            do {
+                let mic = try MicrophoneCapture(deviceUniqueID: micID) { [weak self] buf in
+                    guard let self else { return }
+                    self.encoder?.append(buf, kind: .microphone)
+                    self.levels.ingestMicrophone(buf)
+                }
+                try mic.start()
+                self.micCapture = mic
+            } catch {
+                self.encoder = nil
+                state = .failed(error.localizedDescription)
+                throw CaptureError.microphoneFailed(error.localizedDescription)
             }
-            try mic.start()
-            self.micCapture = mic
         }
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
