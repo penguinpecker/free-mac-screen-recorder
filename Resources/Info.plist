@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>FreeMacScreenRecorder</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.freemacscreenrecorder.app</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Free Mac Screen Recorder</string>
+	<key>CFBundleDisplayName</key>
+	<string>Free Mac Screen Recorder</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.video</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Free Mac Screen Recorder needs to capture your screen to record video.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Free Mac Screen Recorder uses the camera for webcam picture-in-picture overlays.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Free Mac Screen Recorder uses the microphone to record audio alongside the screen.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Free Mac Screen Recorder may query other apps to list their windows for selective recording.</string>
+</dict>
+</plist>
