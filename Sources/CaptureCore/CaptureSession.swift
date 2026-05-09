@@ -47,14 +47,19 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
     public func start(
         source: CaptureSource,
         geometry: CaptureGeometry,
-        settings: RecordingSettings
+        settings: RecordingSettings,
+        exceptingWindowIDs: [CGWindowID] = []
     ) async throws {
         guard case .idle = state else {
             throw CaptureError.streamFailed("CaptureSession is already running")
         }
         state = .starting
 
-        let filter = try await Self.buildFilter(for: source, excludingBundleID: ourBundleID)
+        let filter = try await Self.buildFilter(
+            for: source,
+            excludingBundleID: ourBundleID,
+            exceptingWindowIDs: exceptingWindowIDs
+        )
         let config = Self.buildConfiguration(geometry: geometry, source: source, settings: settings)
 
         // Encoder starts first so we have a place to send frames.
@@ -168,19 +173,25 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private static func buildFilter(
         for source: CaptureSource,
-        excludingBundleID ourBundleID: String
+        excludingBundleID ourBundleID: String,
+        exceptingWindowIDs: [CGWindowID]
     ) async throws -> SCContentFilter {
         let content = try await SCShareableContent.current
         let ourApp = content.applications.first { $0.bundleIdentifier == ourBundleID }
         let exclude = ourApp.map { [$0] } ?? []
+        // Resolve windowIDs → SCWindow so we can pass them as exceptions to the
+        // SCK filter (these are our overlay windows we WANT to capture).
+        let exceptions = content.windows.filter { exceptingWindowIDs.contains($0.windowID) }
 
         switch source {
         case .display(let displayID, _):
             guard let display = content.displays.first(where: { $0.displayID == displayID })
             else { throw CaptureError.sourceNotFound }
-            return SCContentFilter(display: display, excludingApplications: exclude, exceptingWindows: [])
+            return SCContentFilter(display: display, excludingApplications: exclude, exceptingWindows: exceptions)
 
         case .window(let windowID):
+            // `desktopIndependentWindow` has no exception API. Webcam / click
+            // overlays will not appear in window captures — known limitation.
             guard let window = content.windows.first(where: { $0.windowID == windowID })
             else { throw CaptureError.sourceNotFound }
             return SCContentFilter(desktopIndependentWindow: window)
@@ -189,7 +200,24 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
             guard let app = content.applications.first(where: { $0.processID == pid }),
                   let display = content.displays.first(where: { $0.displayID == displayID })
             else { throw CaptureError.sourceNotFound }
-            return SCContentFilter(display: display, including: [app], exceptingWindows: [])
+            // Include both the user's app AND our app so the overlay windows
+            // can pass through as exceptions; everything else of ours is excluded.
+            var includes = [app]
+            if let ourApp { includes.append(ourApp) }
+            return SCContentFilter(display: display, including: includes, exceptingWindows: ourWindowsToExclude(content: content, ourBundleID: ourBundleID, keep: Set(exceptingWindowIDs)))
+        }
+    }
+
+    /// All windows belonging to our own app *except* the ones we want to keep
+    /// (webcam/click overlays). Used in app-capture mode where SCK includes
+    /// our app to allow overlays to pass through.
+    private static func ourWindowsToExclude(
+        content: SCShareableContent,
+        ourBundleID: String,
+        keep: Set<CGWindowID>
+    ) -> [SCWindow] {
+        content.windows.filter {
+            $0.owningApplication?.bundleIdentifier == ourBundleID && !keep.contains($0.windowID)
         }
     }
 

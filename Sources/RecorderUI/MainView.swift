@@ -5,10 +5,12 @@ import EncoderKit
 import SwiftUI
 
 public struct MainView: View {
-    @StateObject private var vm = RecordingViewModel()
+    @ObservedObject private var vm: RecordingViewModel
     @State private var showLibrary = false
 
-    public init() {}
+    public init(vm: RecordingViewModel) {
+        self.vm = vm
+    }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +22,7 @@ public struct MainView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     sourceSection
                     audioSection
+                    overlaysSection
                     outputSection
                 }
                 .padding(20)
@@ -118,6 +121,51 @@ public struct MainView: View {
                 if vm.captureSystemAudio { LevelMeterView(monitor: vm.levels, kind: .system) }
                 if vm.captureMicrophone  { LevelMeterView(monitor: vm.levels, kind: .mic) }
             }
+        }
+    }
+
+    private var overlaysSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Overlays")
+
+            // Webcam PiP
+            HStack {
+                Toggle("Webcam picture-in-picture", isOn: Binding(
+                    get: { vm.webcamEnabled },
+                    set: { _ in Task { await vm.toggleWebcam() } }
+                ))
+                Spacer()
+            }
+            if vm.webcamEnabled {
+                Picker("Camera", selection: $vm.selectedWebcamDeviceID) {
+                    ForEach(vm.devices.cameras) { c in
+                        Text(c.localizedName).tag(String?.some(c.id))
+                    }
+                }
+                .onChange(of: vm.selectedWebcamDeviceID) { newID in
+                    if let id = newID { try? vm.webcam.setDevice(id) }
+                }
+                Picker("Position", selection: $vm.webcamCorner) {
+                    ForEach(WebcamCorner.allCases) { c in
+                        Text(c.displayName).tag(c)
+                    }
+                }
+                Picker("Size", selection: $vm.webcamSize) {
+                    ForEach(WebcamSize.allCases) { s in
+                        Text(s.displayName).tag(s)
+                    }
+                }
+            }
+
+            // Click highlights
+            Toggle("Highlight mouse clicks", isOn: Binding(
+                get: { vm.clickHighlightsEnabled },
+                set: { _ in vm.toggleClickHighlights() }
+            ))
+
+            Text("Webcam and click overlays appear in display + region recordings.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

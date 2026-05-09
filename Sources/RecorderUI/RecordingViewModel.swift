@@ -56,7 +56,20 @@ public final class RecordingViewModel: ObservableObject {
     public let levels: AudioLevelMonitor
     public let library: RecordingsLibrary
     public let presets: PresetsStore
+    public let webcam: WebcamOverlayController
+    public let clickHighlights: ClickHighlightController
+    public let hotkeys: GlobalHotkeyController
     private let session: CaptureSession
+
+    @Published public var webcamEnabled: Bool = false
+    @Published public var selectedWebcamDeviceID: String?
+    @Published public var webcamCorner: WebcamCorner = .bottomRight {
+        didSet { webcam.corner = webcamCorner }
+    }
+    @Published public var webcamSize: WebcamSize = .medium {
+        didSet { webcam.size = webcamSize }
+    }
+    @Published public var clickHighlightsEnabled: Bool = false
     private let log = Logger(subsystem: "com.freemacscreenrecorder.app", category: "ViewModel")
     private let bundleID: String
     private let outputFolder: URL
@@ -74,6 +87,53 @@ public final class RecordingViewModel: ObservableObject {
         try? FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
         self.library = RecordingsLibrary(folder: outputFolder)
         self.presets = PresetsStore()
+        self.webcam = WebcamOverlayController()
+        self.clickHighlights = ClickHighlightController()
+        self.hotkeys = GlobalHotkeyController()
+    }
+
+    /// Install global hotkeys after the app is ready. Called from App.
+    public func installGlobalHotkeys() {
+        hotkeys.install(
+            start: { [weak self] in Task { @MainActor in
+                guard let self else { return }
+                if case .recording = self.status { return }
+                await self.startRecording()
+            }},
+            stop: { [weak self] in Task { @MainActor in
+                guard let self else { return }
+                if case .recording = self.status { await self.stopRecording() }
+            }}
+        )
+    }
+
+    public func toggleWebcam() async {
+        if webcamEnabled {
+            webcam.hide()
+            webcamEnabled = false
+            return
+        }
+        guard let id = selectedWebcamDeviceID ?? devices.cameras.first?.id else {
+            status = .error("No camera available.")
+            return
+        }
+        do {
+            try webcam.show(deviceID: id)
+            selectedWebcamDeviceID = id
+            webcamEnabled = true
+        } catch {
+            status = .error("Couldn't start webcam: \(error.localizedDescription)")
+        }
+    }
+
+    public func toggleClickHighlights() {
+        if clickHighlightsEnabled {
+            clickHighlights.hide()
+            clickHighlightsEnabled = false
+        } else {
+            clickHighlights.show()
+            clickHighlightsEnabled = true
+        }
     }
 
     // MARK: - Presets
@@ -156,8 +216,19 @@ public final class RecordingViewModel: ObservableObject {
         )
         settings.codec = codec
 
+        // Collect window IDs of our overlay windows so they appear in the
+        // recording (display/region modes only — see CaptureSession.buildFilter).
+        var exceptions: [CGWindowID] = []
+        if webcamEnabled, let id = webcam.windowID { exceptions.append(id) }
+        if clickHighlightsEnabled { exceptions.append(contentsOf: clickHighlights.windowIDs) }
+
         do {
-            try await session.start(source: source, geometry: geometry, settings: settings)
+            try await session.start(
+                source: source,
+                geometry: geometry,
+                settings: settings,
+                exceptingWindowIDs: exceptions
+            )
             status = .recording(startedAt: Date())
         } catch {
             status = .error(error.localizedDescription)
