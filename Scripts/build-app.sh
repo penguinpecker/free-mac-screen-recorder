@@ -30,12 +30,23 @@ cp "$ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 # PkgInfo (legacy but expected)
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
 
-echo "==> Ad-hoc code signing (development only)..."
-codesign --force --deep --sign - \
+CERT_NAME="Free Mac Screen Recorder Local"
+KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+# `find-identity -p codesigning` requires explicit trust on self-signed certs,
+# but `codesign --sign` only needs the cert + private key in the keychain.
+# Detect via find-certificate to avoid forcing trust setup.
+if security find-certificate -c "$CERT_NAME" "$KEYCHAIN" >/dev/null 2>&1; then
+    SIGN_IDENTITY="$CERT_NAME"
+    echo "==> Code signing with stable identity '$CERT_NAME'..."
+else
+    SIGN_IDENTITY="-"
+    echo "==> Ad-hoc signing (run Scripts/setup-stable-signing.sh for persistent TCC permissions)..."
+fi
+codesign --force --deep --sign "$SIGN_IDENTITY" \
     --entitlements "$ROOT/Resources/FreeMacScreenRecorder.entitlements" \
     --options runtime \
     "$APP_DIR" || {
-        echo "WARN: ad-hoc signing failed; bundle is unsigned." >&2
+        echo "WARN: signing failed; bundle is unsigned." >&2
     }
 
 echo ""
