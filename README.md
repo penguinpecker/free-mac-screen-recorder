@@ -151,7 +151,7 @@ vendor's current offering before switching.)
 ## Requirements
 
 - **macOS 13.0 (Ventura) or later** — macOS 14 (Sonoma) or 15 (Sequoia) recommended
-- **Apple Silicon (M-series)** — Intel Macs may work but are untested
+- **Apple Silicon (M-series)** — Intel Macs do not work (tested on i9 Macbook Pro).
 - For development:
   - Xcode Command Line Tools (already installed if you have `git` working)
   - Optional: full Xcode for app signing / notarization (only needed if you
@@ -186,7 +186,7 @@ once notarization is set up. For now, building from source takes ~30 seconds.
 
 ## Quick start
 
-1. Launch the app.
+1. Launch the app `Free Mac Screen Recorder`.
 2. **Pick a source** — Display, Window, App, or Region. For region, click
    *Select Region…* and drag a rectangle.
 3. **Choose audio** — toggle *Capture system audio* and/or *Capture microphone*.
